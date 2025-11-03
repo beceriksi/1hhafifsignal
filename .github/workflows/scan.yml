@@ -1,18 +1,28 @@
 name: short-1h-bot
+
 on:
   schedule:
     - cron: "0 * * * *"  # her saat başı
   workflow_dispatch:
+
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: |
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Run 1H
-        env: { TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}, CHAT_ID: ${{ secrets.CHAT_ID }} }
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python strategy_scan.py

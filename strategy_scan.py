@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-MEXC = "https://contract.mexc.com"
+# MEXC base: eski 'contract.mexc.com' BOŞ data döndürüyor.
+MEXC = "https://futures.mexc.com"
 BINANCE = "https://api.binance.com"
 COINGECKO = "https://api.coingecko.com/api/v3/global"
 
@@ -16,16 +17,20 @@ def jget(url, params=None, retries=3, timeout=12):
     for _ in range(retries):
         try:
             r = requests.get(url, params=params, timeout=timeout)
-            if r.status_code == 200: return r.json()
-        except: time.sleep(0.5)
+            if r.status_code == 200:
+                return r.json()
+        except:
+            time.sleep(0.5)
     return None
 
 def telegram(text):
-    if not TELEGRAM_TOKEN or not CHAT_ID: print(text); return
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        print(text); return
     try:
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
                       json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
-    except: pass
+    except:
+        pass
 
 # ----- indicators
 def ema(x,n): return x.ewm(span=n, adjust=False).mean()
@@ -48,7 +53,11 @@ def adx(df,n=14):
     return dx.ewm(alpha=1/n, adjust=False).mean()
 
 def volume_spike(df, n=10, r=1.15):
-    t = df['turnover'].astype(float)
+    """
+    Yeni endpoint 'turnover' vermiyor; 'v' (volume) kullanıyoruz.
+    """
+    t = df['v'].astype(float)
+    if len(t) < n+3: return False, {"ratio":1.0, "z":0.0, "ramp":1.0}
     base_ema = t.ewm(span=n, adjust=False).mean()
     ratio = float(t.iloc[-1] / (base_ema.iloc[-2] + 1e-12))
     roll = t.rolling(n)
@@ -88,7 +97,7 @@ def market_note():
     arrow="↑" if (btc_pct is not None and btc_pct>total_pct) else ("↓" if (btc_pct is not None and btc_pct<total_pct) else "→")
     dirb ="↑" if (btc_pct is not None and btc_pct>0) else ("↓" if (btc_pct is not None and btc_pct<0) else "→")
     total2="↑ (Altlara giriş)" if arrow=="↓" and total_pct>=0 else ("↓ (Çıkış)" if arrow=="↑" and total_pct<=0 else "→ (Karışık)")
-    usdt_note=f"{usdt_dom:.1f}%"; 
+    usdt_note=f"{usdt_dom:.1f}%"
     if usdt_dom>=7: usdt_note+=" (riskten kaçış)"
     elif usdt_dom<=5: usdt_note+=" (risk alımı)"
     return f"Piyasa: BTC {dirb} + BTC.D {arrow} (BTC.D {btc_dom:.1f}%) | Total2: {total2} | USDT.D: {usdt_note}"
@@ -100,11 +109,24 @@ def mexc_symbols():
     return [s["symbol"] for s in d["data"] if s.get("quoteCoin")=="USDT"]
 
 def klines(sym, interval="1h", limit=200):
-    d=jget(f"{MEXC}/api/v1/contract/kline/{sym}",{"interval":interval,"limit":limit})
+    """
+    YENİ kline: path yerine query param kullanılır.
+    Eski: /contract/kline/{sym}  --> BOŞ
+    Yeni: /contract/kline?symbol=SYM&interval=...
+    Dönüş: [t,o,h,l,c,v]  (turnover yok)
+    """
+    d=jget(f"{MEXC}/api/v1/contract/kline",
+           {"symbol":sym, "interval":interval, "limit":limit})
     if not d or "data" not in d: return None
-    df=pd.DataFrame(d["data"],columns=["ts","open","high","low","close","volume","turnover"]).astype(
-        {"open":"float64","high":"float64","low":"float64","close":"float64","volume":"float64","turnover":"float64"}
-    ); return df
+    try:
+        df=pd.DataFrame(d["data"], columns=["ts","open","high","low","close","v"]).astype(
+            {"open":"float64","high":"float64","low":"float64","close":"float64","v":"float64"}
+        )
+        # analizde beklenen kolon adları:
+        df = df.rename(columns={"close":"c"})
+        return df
+    except:
+        return None
 
 def funding(sym):
     d=jget(f"{MEXC}/api/v1/contract/funding_rate",{"symbol":sym})
@@ -112,15 +134,19 @@ def funding(sym):
     except: return None
 
 # ----- analysis
-def gap_ok(c, pct=0.08): 
+def gap_ok(c, pct=0.08):
     if len(c)<2: return False
     return abs(float(c.iloc[-1]/c.iloc[-2]-1))<=pct
 
 def analyze(sym):
     df=klines(sym,"1h",200)
     if df is None or len(df)<80: return None,"short"
-    if float(df["turnover"].iloc[-1])<500_000: return None,"lowliq"
-    c,h,l=df['close'],df['high'],df['low']
+
+    # 'turnover' yerine 'v' (volume) kullanıyoruz -> likidite eşiğini makul tut
+    if float(df["v"].iloc[-1]) < 50_000:  # kontrat hacmi düşükse atla (eski turnover mantığına yakın davranış)
+        return None,"lowliq"
+
+    c = df['c']; h = df['high']; l = df['low']
     if not gap_ok(c,0.08): return None,"gap"
 
     rr=float(rsi(c,14).iloc[-1])
@@ -152,7 +178,8 @@ def main():
     btc1, eth1 = coin_state("BTCUSDT","1h"), coin_state("ETHUSDT","1h")
     note = market_note()
     syms=mexc_symbols()
-    if not syms: telegram("⚠️ Sembol listesi alınamadı (MEXC)."); return
+    if not syms:
+        telegram("⚠️ Sembol listesi alınamadı (MEXC)."); return
 
     buys,sells=[],[]
     skipped={"short":0,"lowliq":0,"gap":0,"novol":0}
@@ -163,7 +190,10 @@ def main():
             if res:
                 side,line=res
                 (buys if side=='BUY' else sells).append(f"- {line}")
-        except: pass
+        except Exception as e:
+            # İstersen aşağıdaki satırı açıp debug mesajı gönderebilirsin:
+            # telegram(f"DEBUG {s}: {repr(e)}")
+            pass
         if i%15==0: time.sleep(0.25)
 
     parts=[f"⚡ *1H Sinyaller*\n⏱ {ts()}\nBTC(1H): {btc1} | ETH(1H): {eth1}\n{note}"]
@@ -173,4 +203,5 @@ def main():
     parts.append(f"\n📊 Özet: BUY:{len(buys)} | SELL:{len(sells)} | Atlanan (likidite:{skipped['lowliq']}, gap:{skipped['gap']}, hacim:{skipped['novol']})")
     telegram("\n".join(parts))
 
-if __name__=="__main__": main()
+if __name__=="__main__":
+    main()

@@ -115,12 +115,12 @@ def analyze_one(symbol, interval):
     # --- BUY (güvenli) ---
     if trend_up and rr > 50 and v_buy:
         a = float(adx(pd.DataFrame({"high":h,"low":l,"close":c}),14).iloc[-1])
-        return f"{symbol} | {interval.upper()} | BUY | RSI:{rr:.1f} | ADX:{a:.0f} | Hacim x{ratio:.2f}"
+        return f"{symbol} | {interval.upper()} | 🟢 BUY | RSI:{rr:.1f} | ADX:{a:.0f} | Hacim x{ratio:.2f}"
 
     # --- SELL (gevşetilmiş) ---
     if (not trend_up) and rr < 60 and v_sell:
         a = float(adx(pd.DataFrame({"high":h,"low":l,"close":c}),14).iloc[-1])
-        return f"{symbol} | {interval.upper()} | SELL | RSI:{rr:.1f} | ADX:{a:.0f} | Hacim x{ratio:.2f}"
+        return f"{symbol} | {interval.upper()} | 🔴 SELL | RSI:{rr:.1f} | ADX:{a:.0f} | Hacim x{ratio:.2f}"
 
     return None
 
@@ -142,8 +142,8 @@ def main():
 
     if signals:
         note = market_note()
-        buys  = [x for x in signals if " | BUY | "  in x]
-        sells = [x for x in signals if " | SELL | " in x]
+        buys  = [x for x in signals if "BUY"  in x]
+        sells = [x for x in signals if "SELL" in x]
         head = f"⚡ *Çoklu Zaman Dilimi Sinyalleri*\n⏱ {ts()}\n{note}\n🟢 BUY:{len(buys)} | 🔴 SELL:{len(sells)} | Toplam:{len(signals)}\n"
         body = "\n".join(signals[:70])
         telegram(head + "\n" + body)

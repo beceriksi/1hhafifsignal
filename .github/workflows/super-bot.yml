@@ -1,0 +1,43 @@
+name: Super Bot (MEXC+Binance 15m/1h/4h/1d)
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"   # her 20 dakikada çalış
+  workflow_dispatch:         # manuel tetikleme
+  push:
+    paths:
+      - "main.py"
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install deps
+        run: |
+          pip install pandas numpy requests
+
+      - name: Run bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          # Ayarları istersen buradan da değiştirebilirsin:
+          SCAN_LIMIT_MEXC: "200"
+          SCAN_LIMIT_BINANCE: "200"
+          TIMEFRAMES: "15m,1h,4h,1d"
+          MIN_TURNOVER: "100000"
+          VOL_RATIO_BUY: "1.10"
+          VOL_RATIO_SELL: "0.90"
+          RSI_BUY_MIN: "50.0"
+          RSI_SELL_MAX: "60.0"
+          MARKET_GUARD: "true"
+          MAX_LINES_PER_SIDE: "15"
+        run: |
+          python main.py
